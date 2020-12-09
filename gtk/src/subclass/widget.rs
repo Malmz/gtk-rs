@@ -232,6 +232,10 @@ pub trait WidgetImpl: WidgetImplExt + ObjectImpl {
     fn scroll_event(&self, widget: &Self::Type, event: &gdk::EventScroll) -> Inhibit {
         self.parent_scroll_event(widget, event)
     }
+
+    fn screen_changed(&self, widget: &Self::Type, previous_screen: &Option<gdk::Screen>) {
+        self.parent_screen_changed(widget, previous_screen);
+    }
 }
 
 pub trait WidgetImplExt: ObjectSubclass {
@@ -339,6 +343,7 @@ pub trait WidgetImplExt: ObjectSubclass {
     fn parent_unmap(&self, widget: &Self::Type);
     fn parent_motion_notify_event(&self, widget: &Self::Type, event: &gdk::EventMotion) -> Inhibit;
     fn parent_scroll_event(&self, widget: &Self::Type, event: &gdk::EventScroll) -> Inhibit;
+    fn parent_screen_changed(&self, widget: &Self::Type, previous_screen: &Option<gdk::Screen>);
 }
 
 impl<T: WidgetImpl> WidgetImplExt for T {
@@ -984,6 +989,19 @@ impl<T: WidgetImpl> WidgetImplExt for T {
             }
         }
     }
+
+    fn parent_screen_changed(&self, widget: &Self::Type, previous_screen: &Option<gdk::Screen>) {
+        unsafe {
+            let data = T::type_data();
+            let parent_class = data.as_ref().get_parent_class() as *mut ffi::GtkWidgetClass;
+            if let Some(f) = (*parent_class).screen_changed {
+                f(
+                    widget.unsafe_cast_ref::<Widget>().to_glib_none().0,
+                    mut_override(previous_screen.to_glib_none().0),
+                );
+            }
+        }
+    }
 }
 
 unsafe impl<T: WidgetImpl> IsSubclassable<T> for Widget {
@@ -1031,6 +1049,7 @@ unsafe impl<T: WidgetImpl> IsSubclassable<T> for Widget {
         klass.unmap = Some(widget_unmap::<T>);
         klass.motion_notify_event = Some(widget_motion_notify_event::<T>);
         klass.scroll_event = Some(widget_scroll_event::<T>);
+        klass.screen_changed = Some(widget_screen_changed::<T>);
     }
 }
 
@@ -1561,4 +1580,17 @@ unsafe extern "C" fn widget_scroll_event<T: WidgetImpl>(
     let event: Borrowed<gdk::EventScroll> = from_glib_borrow(mptr);
 
     imp.scroll_event(wrap.unsafe_cast_ref(), &event).to_glib()
+}
+
+unsafe extern "C" fn widget_screen_changed<T: WidgetImpl>(
+    ptr: *mut ffi::GtkWidget,
+    previous_screen: *mut gdk::ffi::GdkScreen,
+) {
+    dbg!(previous_screen);
+    let instance = &*(ptr as *mut T::Instance);
+    let imp = instance.get_impl();
+    let wrap: Borrowed<Widget> = from_glib_borrow(ptr);
+    let previous_screen: Borrowed<Option<gdk::Screen>> = from_glib_borrow(previous_screen);
+
+    imp.screen_changed(wrap.unsafe_cast_ref(), &previous_screen)
 }
